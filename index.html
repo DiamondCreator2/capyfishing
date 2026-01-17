@@ -32,6 +32,9 @@
             80% { transform: translate(2px, -2px) }
             100% { transform: translate(0) }
         }
+        @keyframes fall {
+            to { transform: translateY(100vh) rotate(720deg); }
+        }
         .bobbing {
             animation: bob 2s infinite ease-in-out;
         }
@@ -40,6 +43,13 @@
         }
         .glitch-effect {
             animation: glitch 0.2s infinite;
+        }
+        .confetti {
+            position: fixed;
+            width: 10px;
+            height: 10px;
+            z-index: 100;
+            animation: fall linear forwards;
         }
         
         /* Disable selection for better game feel */
@@ -141,7 +151,7 @@
             </div>
 
             <!-- Action Buttons -->
-            <div class="grid grid-cols-4 gap-2">
+            <div id="action-grid" class="grid grid-cols-3 gap-2">
                 <button onclick="openInventory()" class="bg-orange-100 hover:bg-orange-200 text-orange-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
                     <span class="text-xl mb-1">🎒</span>
                     Bag <span id="bag-count">0</span>
@@ -156,7 +166,7 @@
                     <span class="text-xl mb-1">⚡</span>
                     Upgrades
                 </button>
-                <button onclick="openAdmin()" class="bg-red-100 hover:bg-red-200 text-red-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
+                <button id="admin-btn" onclick="openAdmin()" class="hidden bg-red-100 hover:bg-red-200 text-red-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
                     <span class="text-xl mb-1">⚙️</span>
                     Admin
                 </button>
@@ -197,6 +207,13 @@
                 <div id="index-grid" class="flex-grow overflow-y-auto grid grid-cols-3 gap-3 pr-2 content-start">
                     <!-- Index Items go here -->
                 </div>
+
+                <!-- Reward Claim Button (Hidden by default) -->
+                <div id="index-reward-container" class="hidden mt-4 pt-4 border-t border-slate-100">
+                    <button onclick="claimReward()" class="w-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-bold py-3 rounded-xl shadow-lg transition-transform active:scale-95 animate-pulse flex items-center justify-center gap-2">
+                        <span>🎁</span> Claim Birthday Reward! <span>🎁</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -227,6 +244,21 @@
                     <button onclick="adminUnlockAll()" class="col-span-2 bg-blue-100 text-blue-800 py-3 rounded-xl font-bold hover:bg-blue-200">Unlock All Capys</button>
                     <button onclick="resetGame()" class="col-span-2 bg-red-100 text-red-800 py-3 rounded-xl font-bold hover:bg-red-200">Reset Save</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Birthday Banner Overlay -->
+        <div id="birthday-banner" class="hidden fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm" onclick="closeBanner()">
+            <div class="bg-white p-8 rounded-3xl shadow-2xl text-center transform scale-110 animate-[bounce_1s_infinite] border-4 border-yellow-400">
+                <h1 class="text-4xl sm:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 mb-4 drop-shadow-sm">
+                    Happy Birthday<br>Griffin!
+                </h1>
+                <div class="text-6xl mb-4 animate-pulse">🎂🎉🎁</div>
+                <p class="text-slate-600 font-bold text-lg">You are the Capy King!</p>
+                <div class="mt-4 text-sm text-slate-500 bg-slate-100 p-2 rounded-lg">
+                    Unlocked: <span class="font-bold text-green-600">x3 Catch Mode</span> & <span class="font-bold text-yellow-600">Passive Income</span>
+                </div>
+                <p class="text-slate-400 text-xs mt-4">(Tap anywhere to close)</p>
             </div>
         </div>
 
@@ -265,6 +297,38 @@
             // Griffin Mode
             tripleCatchMode: false
         };
+
+        // --- Admin Code Logic ---
+        // Changed from holding keys (hardware issue) to typing "sauce"
+        let secretBuffer = "";
+        const secretCode = "sauce";
+        
+        document.addEventListener('keydown', (e) => {
+            // Add key to buffer
+            secretBuffer += e.key.toLowerCase();
+            
+            // Keep buffer from getting too long
+            if (secretBuffer.length > 20) {
+                secretBuffer = secretBuffer.slice(-secretCode.length);
+            }
+            
+            // Check if the end of the buffer matches "sauce"
+            if (secretBuffer.endsWith(secretCode)) {
+                const btn = document.getElementById('admin-btn');
+                const grid = document.getElementById('action-grid');
+                
+                if (btn.classList.contains('hidden')) {
+                    btn.classList.remove('hidden');
+                    grid.classList.remove('grid-cols-3');
+                    grid.classList.add('grid-cols-4');
+                    playSound('catch'); // Audio Feedback
+                    
+                    // Visual Flash
+                    btn.classList.add('animate-pulse');
+                    setTimeout(() => btn.classList.remove('animate-pulse'), 1000);
+                }
+            }
+        });
 
         const upgradeData = {
             sell: { name: "Market Connections", max: 5, costs: [100, 250, 500, 1000, 2000], desc: "+20% Sell Value" },
@@ -499,8 +563,19 @@
             
             gameState.passiveIncomeInterval = setInterval(() => {
                 if (gameState.birthdayUnlocked) {
-                    gameState.money += 10;
+                    const bait = baits[gameState.currentBaitId];
+                    
+                    // Logic: 10 if grass/free, otherwise 4x the bait cost
+                    const amount = (bait.id === 'grass' || bait.cost === 0) ? 10 : (bait.cost * 4);
+                    
+                    gameState.money += amount;
                     updateMoneyDisplay();
+                    
+                    // Update the text in the header to show current rate
+                    const slot = document.getElementById('birthday-slot');
+                    const text = slot.querySelector('span');
+                    if (text) text.textContent = `+$${amount}/s`;
+
                     const display = document.getElementById('money-display');
                     display.classList.add('text-green-500');
                     setTimeout(() => display.classList.remove('text-green-500'), 200);
@@ -519,23 +594,37 @@
             document.getElementById('bag-count').textContent = gameState.inventory.length;
         }
 
+        // Modified: Only handles visual notification now, doesn't auto-unlock
         function checkIndexCompletion() {
             if (gameState.birthdayUnlocked) return;
             
             if (gameState.discovered.size === capyTypes.length) {
-                gameState.birthdayUnlocked = true;
-                gameState.tripleCatchMode = true; // Unlock Triple Catch
-                
-                // Reveal the slot
-                document.getElementById('birthday-slot').classList.remove('hidden');
-                alert("🎂 Happy Birthday Griffin! 🎂\n\nYou've unlocked:\n- $10/sec Passive Income\n- x3 Triple Catch Mode!");
+                // Visual notification handled in updateIndexProgress
+                playSound('catch'); // Extra sound cue
             }
         }
 
+        // Modified: Updates text to "CLAIM!" if ready
         function updateIndexProgress() {
             const count = gameState.discovered.size;
             const total = capyTypes.length;
-            document.getElementById('index-progress').textContent = `${count}/${total}`;
+            const span = document.getElementById('index-progress');
+            const btn = span.parentElement.parentElement; // The main Index button
+            
+            if (count === total && !gameState.birthdayUnlocked) {
+                span.textContent = "CLAIM!";
+                span.classList.remove('bg-blue-300/30');
+                span.classList.add('bg-yellow-400', 'text-yellow-900', 'px-2');
+                btn.classList.add('animate-bounce', 'bg-yellow-100', 'border-yellow-300');
+                btn.classList.remove('bg-blue-100');
+            } else {
+                span.textContent = `${count}/${total}`;
+                // Reset styles if claimed or not ready
+                span.classList.add('bg-blue-300/30');
+                span.classList.remove('bg-yellow-400', 'text-yellow-900', 'px-2');
+                btn.classList.remove('animate-bounce', 'bg-yellow-100', 'border-yellow-300');
+                btn.classList.add('bg-blue-100');
+            }
         }
 
         function renderBaits() {
@@ -1021,10 +1110,22 @@
         }
 
         function closeInventory() { document.getElementById('inventory-modal').classList.add('hidden'); }
+        
         function openIndex() { 
             document.getElementById('index-modal').classList.remove('hidden');
             const grid = document.getElementById('index-grid');
             grid.innerHTML = '';
+            
+            // Check if reward is ready
+            const isComplete = gameState.discovered.size === capyTypes.length;
+            const rewardContainer = document.getElementById('index-reward-container');
+            
+            if (isComplete && !gameState.birthdayUnlocked) {
+                rewardContainer.classList.remove('hidden');
+            } else {
+                rewardContainer.classList.add('hidden');
+            }
+
             capyTypes.forEach(capy => {
                 const isDiscovered = gameState.discovered.has(capy.id);
                 const el = document.createElement('div');
@@ -1039,6 +1140,45 @@
                 grid.appendChild(el);
             });
         }
+        
+        function claimReward() {
+            gameState.birthdayUnlocked = true;
+            gameState.tripleCatchMode = true; 
+            
+            document.getElementById('index-reward-container').classList.add('hidden');
+            closeIndex();
+            updateIndexProgress();
+            document.getElementById('birthday-slot').classList.remove('hidden');
+            
+            playSound('sell'); 
+            
+            // Show Banner & Confetti
+            document.getElementById('birthday-banner').classList.remove('hidden');
+            startConfetti();
+        }
+
+        // JS for confetti
+        function startConfetti() {
+            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
+            for (let i = 0; i < 100; i++) {
+                const c = document.createElement('div');
+                c.className = 'confetti';
+                c.style.left = Math.random() * 100 + 'vw';
+                c.style.top = -10 + 'px';
+                c.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                c.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                c.style.opacity = Math.random();
+                document.body.appendChild(c);
+                
+                // Remove after animation
+                setTimeout(() => c.remove(), 5000);
+            }
+        }
+
+        function closeBanner() {
+            document.getElementById('birthday-banner').classList.add('hidden');
+        }
+
         function closeIndex() { document.getElementById('index-modal').classList.add('hidden'); }
 
         // Upgrades Modal Logic
@@ -1155,7 +1295,7 @@
             capyTypes.forEach(c => gameState.discovered.add(c.id));
             updateIndexProgress();
             checkIndexCompletion();
-            alert("Unlocked all Capybaras!");
+            alert("Unlocked all Capybaras! Check the Index to claim your reward.");
             closeAdmin();
         }
 
