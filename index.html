@@ -20,11 +20,15 @@
             50% { transform: translateY(-5px) rotate(2deg); }
             100% { transform: translateY(0px) rotate(0deg); }
         }
+        @keyframes party {
+            0%, 100% { transform: rotate(-5deg) scale(1); }
+            50% { transform: rotate(5deg) scale(1.1); }
+        }
         .bobbing {
             animation: bob 2s infinite ease-in-out;
         }
-        .floating-capy {
-            animation: float 3s infinite ease-in-out;
+        .party-time {
+            animation: party 1s infinite ease-in-out;
         }
         
         /* Disable selection for better game feel */
@@ -45,14 +49,26 @@
     <div class="w-full max-w-md bg-white rounded-3xl shadow-2xl border-4 border-slate-200 flex flex-col relative overflow-hidden">
         
         <!-- Header -->
-        <div class="bg-teal-600 p-4 text-white flex justify-between items-center z-10 shadow-md">
+        <div class="bg-teal-600 p-4 text-white flex justify-between items-center z-10 shadow-md relative">
             <div>
                 <h1 class="font-bold text-xl">🍊 Capy Fishing</h1>
                 <p class="text-teal-100 text-xs">Catch 'em all!</p>
             </div>
-            <div class="bg-teal-800 px-3 py-1 rounded-full flex items-center gap-2">
-                <span>💰</span>
-                <span id="money-display" class="font-mono font-bold">0</span>
+            
+            <!-- Birthday Capy Slot (Hidden until unlocked) -->
+            <div id="birthday-slot" class="hidden absolute left-1/2 transform -translate-x-1/2 top-2 flex flex-col items-center">
+                <div class="w-10 h-10 party-time" id="birthday-icon"></div>
+                <span class="text-[10px] font-bold text-yellow-300 animate-pulse">+$10/s</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+                 <button onclick="toggleMusic()" id="music-btn" class="text-xl bg-teal-700 w-10 h-10 flex items-center justify-center rounded-full hover:bg-teal-500 transition-colors shadow-inner" title="Toggle Music">
+                    🔇
+                </button>
+                <div class="bg-teal-800 px-3 py-1 rounded-full flex items-center gap-2">
+                    <span>💰</span>
+                    <span id="money-display" class="font-mono font-bold">0</span>
+                </div>
             </div>
         </div>
 
@@ -78,11 +94,6 @@
                 <div class="text-6xl">🎣</div>
             </div>
 
-            <!-- The Bobber -->
-            <div id="bobber" class="hidden absolute z-10 text-3xl transition-all duration-300 drop-shadow-md">
-                
-            </div>
-
             <!-- Messages -->
             <div id="game-message" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white font-bold text-2xl text-center drop-shadow-md z-30 pointer-events-none">
                 Tap to Cast!
@@ -90,10 +101,11 @@
 
             <!-- Visual Feedback for Catch -->
             <div id="catch-feedback" class="hidden absolute top-1/3 left-1/2 transform -translate-x-1/2 z-40 flex flex-col items-center animate-bounce">
-                <!-- Changed from text-6xl to w-32 h-32 for SVG -->
+                <!-- Catch SVG container -->
                 <div id="caught-emoji" class="w-32 h-32 mb-2 drop-shadow-xl"></div>
                 <div id="caught-name" class="bg-white px-3 py-1 rounded-full shadow-lg font-bold text-sm text-slate-700"></div>
                 <div id="caught-value" class="text-yellow-300 font-bold drop-shadow-md mt-1"></div>
+                <div id="new-discovery" class="hidden mt-2 text-xs font-bold text-white bg-orange-500 px-2 py-1 rounded-full animate-pulse">NEW!</div>
             </div>
 
         </div>
@@ -117,8 +129,8 @@
                 <button onclick="openInventory()" class="bg-orange-100 hover:bg-orange-200 text-orange-800 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2">
                     🎒 Bag (<span id="bag-count">0</span>)
                 </button>
-                <button onclick="sellAll()" class="bg-green-100 hover:bg-green-200 text-green-800 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2">
-                    💵 Sell All
+                <button onclick="openIndex()" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2">
+                    📖 Index <span id="index-progress" class="text-xs bg-blue-200 px-2 py-0.5 rounded-full">0/14</span>
                 </button>
             </div>
         </div>
@@ -144,6 +156,23 @@
             </div>
         </div>
 
+        <!-- Index Modal (Overlay) -->
+        <div id="index-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center justify-center p-4">
+            <div class="bg-white w-full max-w-md h-5/6 sm:h-3/4 rounded-3xl p-6 flex flex-col shadow-2xl animate-[slideUp_0.3s_ease-out]">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-800">Capy Index</h2>
+                        <p class="text-xs text-slate-500">Collect all to unlock a surprise!</p>
+                    </div>
+                    <button onclick="closeIndex()" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+                </div>
+                
+                <div id="index-grid" class="flex-grow overflow-y-auto grid grid-cols-3 gap-3 pr-2 content-start">
+                    <!-- Index Items go here -->
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -151,13 +180,18 @@
         const gameState = {
             money: 0,
             inventory: [],
+            discovered: new Set(), // IDs of discovered capys
+            birthdayUnlocked: false,
             currentBaitId: 'grass',
             isFishing: false,
             isWaitingForBite: false,
-            isCasting: false, // Prevents accidental double-clicks when casting
-            showingCatch: false, // Prevents spam-clicking the reward screen
+            isCasting: false, 
+            showingCatch: false, 
             biteTimeout: null,
-            reactionTimeout: null
+            reactionTimeout: null,
+            musicPlaying: false,
+            musicInterval: null,
+            passiveIncomeInterval: null
         };
 
         const baits = {
@@ -193,58 +227,189 @@
             
             let extras = '';
             
-            if (type === 'muddy') {
-                extras = `<path d="M15,60 Q25,45 35,60 Q45,35 55,55 Q65,45 75,65 V70 A25,25 0 0,1 15,70 V60 Z" fill="#5D4037" opacity="0.7"/>`;
-            } else if (type === 'flower') {
-                extras = `
-                    <g transform="translate(20, 20)">
-                        <circle cx="0" cy="0" r="12" fill="#F48FB1" stroke="#C2185B" stroke-width="2"/>
-                        <circle cx="0" cy="0" r="5" fill="#FCE4EC"/>
-                        <path d="M0,12 L0,18" stroke="#4CAF50" stroke-width="2"/>
-                    </g>`;
-            } else if (type === 'fancy') {
-                extras = `
-                    <g>
-                        <rect x="30" y="5" width="40" height="25" fill="#212121" stroke="#000" stroke-width="2"/>
-                        <rect x="20" y="30" width="60" height="5" fill="#212121" stroke="#000" stroke-width="2"/>
-                        <rect x="30" y="23" width="40" height="4" fill="#E0E0E0"/>
-                        <!-- Monocle -->
-                        <circle cx="65" cy="45" r="9" stroke="#FFD700" stroke-width="2" fill="rgba(255, 255, 255, 0.3)"/>
-                        <path d="M74,45 L74,60" stroke="#FFD700" stroke-width="2"/>
-                    </g>`;
-            } else if (type === 'king') {
-                extras = `
-                    <path d="M25,28 L25,5 L37,20 L50,0 L62,20 L75,5 L75,28 Z" fill="#FFD700" stroke="#FF8F00" stroke-width="2"/>
-                    <circle cx="25" cy="5" r="3" fill="#D32F2F"/>
-                    <circle cx="50" cy="0" r="3" fill="#D32F2F"/>
-                    <circle cx="75" cy="5" r="3" fill="#D32F2F"/>
-                `;
-            } else if (type === 'ghost') {
-                // Ghost replaces the base entirely
-                return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">
-                    <path d="M20,80 Q20,20 50,20 Q80,20 80,80 L70,75 L60,80 L50,75 L40,80 L30,75 L20,80 Z" fill="#E0F7FA" stroke="#B2EBF2" stroke-width="2" opacity="0.8"/>
-                    <circle cx="35" cy="45" r="4" fill="#006064"/>
-                    <circle cx="65" cy="45" r="4" fill="#006064"/>
-                    <ellipse cx="50" cy="65" rx="6" ry="8" fill="#006064"/>
-                </svg>`;
+            switch (type) {
+                case 'muddy':
+                    extras = `<path d="M15,60 Q25,45 35,60 Q45,35 55,55 Q65,45 75,65 V70 A25,25 0 0,1 15,70 V60 Z" fill="#5D4037" opacity="0.7"/>`;
+                    break;
+                case 'flower':
+                    extras = `
+                        <g transform="translate(20, 20)">
+                            <circle cx="0" cy="0" r="12" fill="#F48FB1" stroke="#C2185B" stroke-width="2"/>
+                            <circle cx="0" cy="0" r="5" fill="#FCE4EC"/>
+                            <path d="M0,12 L0,18" stroke="#4CAF50" stroke-width="2"/>
+                        </g>`;
+                    break;
+                case 'chef':
+                    extras = `
+                        <g transform="translate(0, -15)">
+                            <path d="M30,25 L30,5 Q50,-10 70,5 L70,25" fill="#FFFFFF" stroke="#E0E0E0" stroke-width="2"/>
+                            <rect x="25" y="25" width="50" height="10" fill="#FFFFFF" stroke="#E0E0E0" stroke-width="2"/>
+                            <path d="M25,80 L75,80 L70,95 L30,95 Z" fill="#D32F2F" />
+                        </g>`;
+                    break;
+                case 'dino':
+                    extras = `
+                         <path d="M15,25 Q10,10 50,5 Q90,10 85,25" fill="none" stroke="#66BB6A" stroke-width="8"/>
+                         <path d="M50,5 L40,15 M50,5 L60,15" stroke="#66BB6A" stroke-width="4"/>
+                    `;
+                    break;
+                case 'fancy':
+                    extras = `
+                        <g>
+                            <rect x="30" y="5" width="40" height="25" fill="#212121" stroke="#000" stroke-width="2"/>
+                            <rect x="20" y="30" width="60" height="5" fill="#212121" stroke="#000" stroke-width="2"/>
+                            <rect x="30" y="23" width="40" height="4" fill="#E0E0E0"/>
+                            <!-- Monocle -->
+                            <circle cx="65" cy="45" r="9" stroke="#FFD700" stroke-width="2" fill="rgba(255, 255, 255, 0.3)"/>
+                            <path d="M74,45 L74,60" stroke="#FFD700" stroke-width="2"/>
+                        </g>`;
+                    break;
+                case 'pirate':
+                    extras = `
+                        <path d="M20,25 Q50,15 80,25 L85,20 L15,20 Z" fill="#212121"/>
+                        <circle cx="60" cy="20" r="5" fill="#FFFFFF" opacity="0.3"/>
+                        <path d="M30,45 L40,45 L40,45" stroke="#000" stroke-width="3"/> <!-- Eyepatch strap -->
+                        <circle cx="35" cy="45" r="6" fill="#000"/>
+                    `;
+                    break;
+                case 'ninja':
+                    extras = `
+                        <rect x="15" y="35" width="70" height="15" fill="#212121"/>
+                        <circle cx="35" cy="42" r="2" fill="#FFFFFF"/>
+                        <circle cx="65" cy="42" r="2" fill="#FFFFFF"/>
+                        <path d="M85,35 L95,25 L95,45 Z" fill="#212121"/> 
+                    `;
+                    break;
+                case 'wizard':
+                    extras = `
+                        <path d="M20,25 L50,-10 L80,25 Z" fill="#673AB7"/>
+                        <circle cx="50" cy="10" r="3" fill="#FFD700"/>
+                        <path d="M15,25 Q50,20 85,25" stroke="#673AB7" stroke-width="4" fill="none"/>
+                    `;
+                    break;
+                case 'robot':
+                    extras = `
+                        <rect x="35" y="40" width="10" height="10" fill="#EF5350" opacity="0.8"/>
+                        <circle cx="65" cy="45" r="4" fill="#42A5F5"/>
+                        <line x1="15" y1="25" x2="85" y2="25" stroke="#B0BEC5" stroke-width="2"/>
+                        <path d="M50,25 L50,10" stroke="#90A4AE" stroke-width="2"/>
+                        <circle cx="50" cy="10" r="3" fill="#FF5252" class="animate-pulse"/>
+                    `;
+                    break;
+                case 'king':
+                    extras = `
+                        <path d="M25,28 L25,5 L37,20 L50,0 L62,20 L75,5 L75,28 Z" fill="#FFD700" stroke="#FF8F00" stroke-width="2"/>
+                        <circle cx="25" cy="5" r="3" fill="#D32F2F"/>
+                        <circle cx="50" cy="0" r="3" fill="#D32F2F"/>
+                        <circle cx="75" cy="5" r="3" fill="#D32F2F"/>
+                    `;
+                    break;
+                case 'space':
+                    extras = `
+                        <circle cx="50" cy="50" r="40" fill="rgba(179, 229, 252, 0.4)" stroke="#81D4FA" stroke-width="2"/>
+                        <rect x="40" y="80" width="20" height="10" fill="#9E9E9E"/>
+                    `;
+                    break;
+                case 'ghost':
+                    return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">
+                        <path d="M20,80 Q20,20 50,20 Q80,20 80,80 L70,75 L60,80 L50,75 L40,80 L30,75 L20,80 Z" fill="#E0F7FA" stroke="#B2EBF2" stroke-width="2" opacity="0.8"/>
+                        <circle cx="35" cy="45" r="4" fill="#006064"/>
+                        <circle cx="65" cy="45" r="4" fill="#006064"/>
+                        <ellipse cx="50" cy="65" rx="6" ry="8" fill="#006064"/>
+                    </svg>`;
+                case 'rainbow':
+                    return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">
+                         <defs>
+                            <linearGradient id="rainbowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" style="stop-color:red;stop-opacity:1" />
+                                <stop offset="20%" style="stop-color:orange;stop-opacity:1" />
+                                <stop offset="40%" style="stop-color:yellow;stop-opacity:1" />
+                                <stop offset="60%" style="stop-color:green;stop-opacity:1" />
+                                <stop offset="80%" style="stop-color:blue;stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:violet;stop-opacity:1" />
+                            </linearGradient>
+                        </defs>
+                        ${base.replace(`fill="${bodyColor}"`, `fill="url(#rainbowGrad)"`)}
+                        <circle cx="35" cy="45" r="4" fill="white"/>
+                        <circle cx="65" cy="45" r="4" fill="white"/>
+                    </svg>`;
+                case 'birthday':
+                     extras = `
+                        <path d="M30,25 L50,-10 L70,25 Z" fill="#FFEB3B" stroke="#FBC02D" stroke-width="1"/>
+                        <circle cx="50" cy="-10" r="3" fill="#FF5252"/>
+                        <circle cx="40" cy="15" r="2" fill="#42A5F5"/>
+                        <circle cx="60" cy="10" r="2" fill="#66BB6A"/>
+                        <path d="M20,80 Q50,90 80,80" fill="none" stroke="#EC407A" stroke-width="3"/>
+                    `;
+                    break;
             }
 
             return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">${base}${extras}</svg>`;
         }
 
         const capyTypes = [
-            { id: 'common', name: 'Common Capy', value: 5, rarity: 60, icon: createCapySVG('common'), minLuck: 1 },
-            { id: 'muddy', name: 'Muddy Capy', value: 15, rarity: 25, icon: createCapySVG('muddy'), minLuck: 1 },
-            { id: 'flower', name: 'Flower Capy', value: 45, rarity: 10, icon: createCapySVG('flower'), minLuck: 1.5 },
-            { id: 'fancy', name: 'Fancy Capy', value: 120, rarity: 4, icon: createCapySVG('fancy'), minLuck: 1.5 },
-            { id: 'king', name: 'King Capy', value: 350, rarity: 0.9, icon: createCapySVG('king'), minLuck: 3 },
-            { id: 'ghost', name: 'Ghost Capy', value: 1000, rarity: 0.1, icon: createCapySVG('ghost'), minLuck: 6 }
+            { id: 'common', name: 'Common', value: 5, rarity: 100, minLuck: 1 },
+            { id: 'muddy', name: 'Muddy', value: 15, rarity: 60, minLuck: 1 },
+            { id: 'flower', name: 'Flower', value: 35, rarity: 30, minLuck: 1.2 },
+            { id: 'chef', name: 'Chef', value: 45, rarity: 25, minLuck: 1.5 },
+            { id: 'dino', name: 'Dino', value: 60, rarity: 20, minLuck: 1.5 },
+            { id: 'fancy', name: 'Fancy', value: 100, rarity: 15, minLuck: 1.5 },
+            { id: 'pirate', name: 'Pirate', value: 120, rarity: 12, minLuck: 2.0 },
+            { id: 'ninja', name: 'Ninja', value: 150, rarity: 10, minLuck: 2.0 },
+            { id: 'wizard', name: 'Wizard', value: 200, rarity: 8, minLuck: 3.0 },
+            { id: 'robot', name: 'Robot', value: 250, rarity: 6, minLuck: 3.0 },
+            { id: 'king', name: 'King', value: 500, rarity: 4, minLuck: 4.0 },
+            { id: 'space', name: 'Space', value: 800, rarity: 2, minLuck: 5.0 },
+            { id: 'ghost', name: 'Ghost', value: 1500, rarity: 1, minLuck: 6.0 },
+            { id: 'rainbow', name: 'Rainbow', value: 5000, rarity: 0.1, minLuck: 6.0 }
         ];
 
-        // --- Audio Context (Simple Synth for Sound Effects) ---
-        // Using a simple oscillator to avoid external audio file dependencies
+        // Add icons to objects
+        capyTypes.forEach(c => c.icon = createCapySVG(c.id));
+
+        // --- Audio Context (Simple Synth) ---
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         const audioCtx = new AudioContext();
+
+        // Music Logic
+        function toggleMusic() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            const btn = document.getElementById('music-btn');
+            
+            if (gameState.musicPlaying) {
+                gameState.musicPlaying = false;
+                clearInterval(gameState.musicInterval);
+                btn.textContent = "🔇";
+            } else {
+                gameState.musicPlaying = true;
+                btn.textContent = "🎵";
+                playAmbientMusic();
+            }
+        }
+
+        function playAmbientMusic() {
+            const notes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+            
+            const playNote = () => {
+                if (!gameState.musicPlaying) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const freq = notes[Math.floor(Math.random() * notes.length)];
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                const now = audioCtx.currentTime;
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(0.05, now + 1);
+                gain.gain.linearRampToValueAtTime(0, now + 4);
+                osc.start(now);
+                osc.stop(now + 4);
+            };
+            playNote();
+            gameState.musicInterval = setInterval(playNote, 2500);
+        }
 
         function playSound(type) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -252,11 +417,9 @@
             const gain = audioCtx.createGain();
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-
             const now = audioCtx.currentTime;
             
             if (type === 'cast') {
-                osc.type = 'sine';
                 osc.frequency.setValueAtTime(400, now);
                 osc.frequency.exponentialRampToValueAtTime(100, now + 0.3);
                 gain.gain.setValueAtTime(0.3, now);
@@ -272,7 +435,6 @@
                 osc.start(now);
                 osc.stop(now + 0.2);
             } else if (type === 'catch') {
-                osc.type = 'sine';
                 osc.frequency.setValueAtTime(400, now);
                 osc.frequency.linearRampToValueAtTime(800, now + 0.1);
                 osc.frequency.linearRampToValueAtTime(1200, now + 0.2);
@@ -305,6 +467,25 @@
             updateMoneyDisplay();
             renderBaits();
             updateBagCount();
+            startPassiveIncome();
+            
+            // Render Birthday Capy Icon in header
+            document.getElementById('birthday-icon').innerHTML = createCapySVG('birthday');
+        }
+
+        function startPassiveIncome() {
+            if (gameState.passiveIncomeInterval) clearInterval(gameState.passiveIncomeInterval);
+            
+            gameState.passiveIncomeInterval = setInterval(() => {
+                if (gameState.birthdayUnlocked) {
+                    gameState.money += 10;
+                    updateMoneyDisplay();
+                    // Optional small bounce or effect on money
+                    const display = document.getElementById('money-display');
+                    display.classList.add('text-green-500');
+                    setTimeout(() => display.classList.remove('text-green-500'), 200);
+                }
+            }, 1000);
         }
 
         function updateMoneyDisplay() {
@@ -317,26 +498,33 @@
             document.getElementById('bag-count').textContent = gameState.inventory.length;
         }
 
+        function checkIndexCompletion() {
+            if (gameState.birthdayUnlocked) return;
+            
+            if (gameState.discovered.size === capyTypes.length) {
+                gameState.birthdayUnlocked = true;
+                // Reveal the slot
+                document.getElementById('birthday-slot').classList.remove('hidden');
+                alert("🎉 BIRTHDAY CAPYBARA UNLOCKED! 🎉\nYou now earn $10/second forever!");
+            }
+        }
+
+        function updateIndexProgress() {
+            const count = gameState.discovered.size;
+            const total = capyTypes.length;
+            document.getElementById('index-progress').textContent = `${count}/${total}`;
+        }
+
         function renderBaits() {
             const container = document.getElementById('bait-container');
             container.innerHTML = '';
 
             Object.values(baits).forEach(bait => {
-                const isOwned = bait.id === 'grass'; // Only grass is owned by default (conceptually)
+                const isOwned = bait.id === 'grass'; 
                 const isCurrent = gameState.currentBaitId === bait.id;
                 const canAfford = gameState.money >= bait.cost;
                 
-                // Logic: You "buy" bait for single use or unlock? 
-                // Let's make it: You buy a pack. No, let's keep it simple: 
-                // You pay to switch to it, if it costs money, it's a "License" or it's per cast?
-                // Request said "buy better bait". Let's make it an Unlock system for simplicity in UI.
-                // Or better: Consumable? No, let's do: Unlock upgrades.
-                // Actually, let's just make it: Click to equip. If cost > 0, it deducts money ON EQUIP? 
-                // Let's do: Unlock one time purchase.
-                
-                // Storing unlocks in gameState
                 if (!gameState.unlockedBaits) gameState.unlockedBaits = ['grass'];
-
                 const isUnlocked = gameState.unlockedBaits.includes(bait.id);
 
                 const btn = document.createElement('div');
@@ -373,7 +561,7 @@
                         gameState.currentBaitId = bait.id;
                         updateMoneyDisplay();
                         renderBaits();
-                        playSound('sell'); // reuse coin sound
+                        playSound('sell'); 
                     }
                 };
                 container.appendChild(btn);
@@ -390,42 +578,25 @@
         // --- Fishing Logic ---
 
         function handlePondClick() {
-            // Ignore clicks if casting animation or catch screen is active
             if (gameState.isCasting || gameState.showingCatch) return;
 
             const fisherman = document.getElementById('fisherman');
             const msg = document.getElementById('game-message');
-            const bobber = document.getElementById('bobber');
 
             if (!gameState.isFishing) {
-                // START FISHING
                 gameState.isFishing = true;
-                gameState.isCasting = true; // Lock input
+                gameState.isCasting = true;
                 msg.textContent = "Waiting...";
                 msg.classList.add('animate-pulse');
                 
-                // Show specific bait icon instead of generic bobber
-                bobber.textContent = baits[gameState.currentBaitId].icon;
-
-                // Animation: Cast
                 fisherman.classList.add('-rotate-12');
                 playSound('cast');
                 
                 setTimeout(() => {
                     fisherman.classList.remove('-rotate-12');
-                    gameState.isCasting = false; // Unlock input
+                    gameState.isCasting = false;
                     
-                    // Show Bobber at random X
-                    const randomX = 20 + Math.random() * 60;
-                    const randomY = 30 + Math.random() * 40;
-                    bobber.style.left = `${randomX}%`;
-                    bobber.style.top = `${randomY}%`;
-                    bobber.classList.remove('hidden');
-                    bobber.classList.add('bobbing');
-                    
-                    // Wait for bite (2s to 5s)
                     const waitTime = 2000 + Math.random() * 3000;
-                    
                     gameState.biteTimeout = setTimeout(() => {
                         triggerBite();
                     }, waitTime);
@@ -433,11 +604,8 @@
                 }, 300);
 
             } else if (gameState.isWaitingForBite) {
-                // CLICKED WHILE WAITING (Reel in)
                 reelIn();
             } else {
-                // CLICKED TOO EARLY (Before bite)
-                // Just cancel cast
                 cancelFishing("Too early!");
             }
         }
@@ -447,33 +615,25 @@
 
             gameState.isWaitingForBite = true;
             const msg = document.getElementById('game-message');
-            const bobber = document.getElementById('bobber');
             
             msg.textContent = "❗ BITE! TAP NOW! ❗";
             msg.classList.remove('animate-pulse');
             msg.classList.add('text-red-500', 'scale-110');
-            
-            bobber.classList.remove('bobbing');
-            bobber.classList.add('animate-bounce'); // violent shaking
             playSound('bite');
 
-            // Fail window (1s)
             gameState.reactionTimeout = setTimeout(() => {
                 if (gameState.isFishing) {
                     cancelFishing("Got away...");
                 }
-            }, 1000); // 1 second window
+            }, 1000);
         }
 
         function reelIn() {
             clearTimeout(gameState.reactionTimeout);
-            
             if (gameState.isWaitingForBite) {
-                gameState.isWaitingForBite = false; // Prevent spam by clearing state immediately
-                // SUCCESS
+                gameState.isWaitingForBite = false; 
                 determineCatch();
             } else {
-                // Should catch stray clicks
                 cancelFishing("???");
             }
         }
@@ -482,33 +642,22 @@
             const bait = baits[gameState.currentBaitId];
             const luck = bait.luck;
             
-            // Filter capys by minLuck required by bait (some rares need better bait)
-            
             let pool = [];
             capyTypes.forEach(capy => {
                 if (luck >= capy.minLuck) {
-                    // Modified Logic:
-                    // Better bait significantly decreases the rate of "worse" capybaras.
-                    
                     let weight;
-                    // Common (5) and Muddy (15) are considered "worse"
                     if (capy.value <= 15) {
-                        // Divides their rarity by luck.
-                        // Example: Yuzu (Luck 6) makes Common capys 6x less likely than base.
                         weight = capy.rarity / luck; 
                     } else {
-                        // Multiplies good capys by luck.
                         weight = capy.rarity * luck;
                     }
-
                     pool.push({ ...capy, weight: weight });
                 }
             });
 
-            // Weighted Random
             const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
             let random = Math.random() * totalWeight;
-            let caught = pool[0]; // fallback
+            let caught = pool[0]; 
 
             for (let item of pool) {
                 if (random < item.weight) {
@@ -523,26 +672,34 @@
 
         function showCatch(capy) {
             gameState.inventory.push(capy);
-            gameState.showingCatch = true; // Lock input during celebration
+            gameState.showingCatch = true;
             updateBagCount();
             playSound('catch');
             
-            // Visuals
+            // Check Discovery
+            const isNew = !gameState.discovered.has(capy.id);
+            if (isNew) {
+                gameState.discovered.add(capy.id);
+                updateIndexProgress();
+                checkIndexCompletion();
+            }
+            
             const feedback = document.getElementById('catch-feedback');
             const img = document.getElementById('caught-emoji');
             const name = document.getElementById('caught-name');
             const val = document.getElementById('caught-value');
+            const newLabel = document.getElementById('new-discovery');
             
-            // Changed from textContent to innerHTML for SVG support
             img.innerHTML = capy.icon;
             name.textContent = capy.name;
             val.textContent = `+$${capy.value}`;
             
+            if (isNew) newLabel.classList.remove('hidden');
+            else newLabel.classList.add('hidden');
+            
             feedback.classList.remove('hidden');
-            document.getElementById('bobber').classList.add('hidden');
             document.getElementById('game-message').textContent = "Gotcha!";
 
-            // Reset after delay
             setTimeout(() => {
                 feedback.classList.add('hidden');
                 gameState.showingCatch = false;
@@ -555,9 +712,6 @@
             msg.textContent = reason;
             msg.classList.remove('text-red-500', 'scale-110');
             playSound('fail');
-            
-            document.getElementById('bobber').classList.add('hidden');
-            
             setTimeout(() => {
                 resetFishingState();
             }, 1000);
@@ -572,30 +726,22 @@
             const msg = document.getElementById('game-message');
             msg.textContent = "Tap to Cast!";
             msg.classList.remove('animate-pulse', 'text-red-500', 'scale-110');
-            
-            const bobber = document.getElementById('bobber');
-            bobber.classList.add('hidden');
-            bobber.classList.remove('bobbing', 'animate-bounce');
         }
 
-        // --- Shop & Inventory Logic ---
+        // --- Shop, Inventory & Index Logic ---
 
         function openInventory() {
             const modal = document.getElementById('inventory-modal');
             const list = document.getElementById('inventory-list');
-            const totalValSpan = document.getElementById('total-sell-value');
-            
             modal.classList.remove('hidden');
             list.innerHTML = '';
 
             if (gameState.inventory.length === 0) {
                 list.innerHTML = '<div class="text-center text-slate-400 mt-10 italic">Your bag is empty. Go fish!</div>';
             } else {
-                // Group items? No, simple list is more satisfying for "Sell All" effect
                 gameState.inventory.forEach(item => {
                     const el = document.createElement('div');
                     el.className = 'flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100';
-                    // Changed span text-2xl to div w-12 h-12 for SVG support
                     el.innerHTML = `
                         <div class="flex items-center gap-3">
                             <div class="w-12 h-12">${item.icon}</div>
@@ -606,16 +752,42 @@
                     list.appendChild(el);
                 });
             }
-
-            const totalValue = gameState.inventory.reduce((sum, item) => sum + item.value, 0);
-            totalValSpan.textContent = `$${totalValue}`;
-            
-            // Only calc sell button update here to avoid recalcing on every render
-            updateSellButton(totalValue);
+            updateSellButton();
         }
 
         function closeInventory() {
             document.getElementById('inventory-modal').classList.add('hidden');
+        }
+
+        function openIndex() {
+            const modal = document.getElementById('index-modal');
+            const grid = document.getElementById('index-grid');
+            modal.classList.remove('hidden');
+            grid.innerHTML = '';
+
+            capyTypes.forEach(capy => {
+                const isDiscovered = gameState.discovered.has(capy.id);
+                const el = document.createElement('div');
+                el.className = `flex flex-col items-center justify-center p-2 rounded-xl border-2 aspect-square
+                    ${isDiscovered ? 'bg-white border-teal-200 shadow-sm' : 'bg-slate-100 border-slate-200'}`;
+                
+                if (isDiscovered) {
+                    el.innerHTML = `
+                        <div class="w-12 h-12 mb-1">${capy.icon}</div>
+                        <div class="text-[10px] font-bold text-center leading-tight">${capy.name}</div>
+                    `;
+                } else {
+                    el.innerHTML = `
+                        <div class="text-3xl text-slate-300 opacity-50">?</div>
+                        <div class="text-[10px] font-bold text-slate-300 text-center mt-1">LOCKED</div>
+                    `;
+                }
+                grid.appendChild(el);
+            });
+        }
+
+        function closeIndex() {
+            document.getElementById('index-modal').classList.add('hidden');
         }
 
         function sellAll() {
@@ -623,15 +795,13 @@
 
             const totalValue = gameState.inventory.reduce((sum, item) => sum + item.value, 0);
             gameState.money += totalValue;
-            gameState.inventory = []; // clear array
+            gameState.inventory = []; 
             
             playSound('sell');
             updateMoneyDisplay();
             updateBagCount();
             
-            // Visual feedback
             const msg = document.getElementById('game-message');
-            const oldMsg = msg.textContent;
             msg.textContent = `Sold for $${totalValue}!`;
             setTimeout(() => {
                 if (!gameState.isFishing) msg.textContent = "Tap to Cast!";
@@ -639,13 +809,13 @@
         }
 
         function updateSellButton(val) {
-            // Helper to update text in modal if passed, otherwise just general logic
              const currentVal = val !== undefined ? val : gameState.inventory.reduce((sum, item) => sum + item.value, 0);
              document.getElementById('total-sell-value').textContent = `$${currentVal}`;
         }
 
         // Start
         init();
+        updateIndexProgress();
 
     </script>
 </body>
