@@ -133,7 +133,7 @@
             <div class="grid grid-cols-3 gap-2">
                 <button onclick="openInventory()" class="bg-orange-100 hover:bg-orange-200 text-orange-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
                     <span class="text-xl mb-1">🎒</span>
-                    Bag (<span id="bag-count">0</span>)
+                    Bag <span id="bag-count">0</span>
                 </button>
                 <button onclick="openIndex()" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
                     <span class="text-xl mb-1">📖</span>
@@ -209,9 +209,14 @@
             discovered: new Set(),
             birthdayUnlocked: false,
             currentBaitId: 'grass',
+            
+            // Consumable Bait State - Added new baits here
+            baitStock: { grass: Infinity, carrot: 0, melon: 0, apple: 0, yuzu: 0, sushi: 0, truffle: 0 },
+
             isFishing: false,
             isWaitingForBite: false,
             isCasting: false, 
+            isOnCooldown: false, // For fail punishment
             showingCatch: false, 
             biteTimeout: null,
             reactionTimeout: null,
@@ -234,32 +239,48 @@
 
         const baits = {
             'grass': { id: 'grass', name: 'Dry Grass', cost: 0, luck: 1, icon: '🌾', desc: 'Free, but basic.' },
-            'carrot': { id: 'carrot', name: 'Crunchy Carrot', cost: 50, luck: 1.5, icon: '🥕', desc: 'Capys love the crunch.' },
-            'melon': { id: 'melon', name: 'Watermelon', cost: 250, luck: 3, icon: '🍉', desc: 'The ultimate treat!' },
-            'yuzu': { id: 'yuzu', name: 'Hot Yuzu', cost: 1000, luck: 6, icon: '🍊', desc: 'For legendary relaxation.' }
+            'carrot': { id: 'carrot', name: 'Crunchy Carrot', cost: 15, luck: 1.5, icon: '🥕', desc: 'Capys love the crunch.' },
+            // Prices Increased 10x
+            'melon': { id: 'melon', name: 'Watermelon', cost: 125, luck: 3, icon: '🍉', desc: 'The ultimate treat!' },
+            // New Baits Added
+            'apple': { id: 'apple', name: 'Golden Apple', cost: 600, luck: 4.5, icon: '🍎', desc: 'Shiny and delicious.' },
+            'yuzu': { id: 'yuzu', name: 'Hot Yuzu', cost: 1000, luck: 6, icon: '🍊', desc: 'For legendary relaxation.' },
+            'sushi': { id: 'sushi', name: 'Veggie Sushi', cost: 2500, luck: 9, icon: '🍣', desc: 'A sophisticated snack.' },
+            'truffle': { id: 'truffle', name: 'Diamond Truffle', cost: 5000, luck: 15, icon: '💎', desc: 'Pure luxury.' }
         };
 
         // --- SVG Graphics Generator ---
         function createCapySVG(type) {
-            // Base Capybara shape colors
-            const bodyColor = "#BCAAA4"; // Light brown
-            const strokeColor = "#795548"; // Darker brown
-            const darkColor = "#3E2723"; // Dark brown features
+            // Updated Colors for a more natural look
+            const bodyColor = "#BA8E63"; // Warm, rich brown
+            const strokeColor = "#543D32"; // Dark brown outline
+            const darkColor = "#2A1D18"; // Very dark brown for features
+            const highlight = "#D4B491"; // Lighter brown for snout highlight
 
-            // Common base parts
+            // Improved Base Capybara Art
             const base = `
                 <g>
-                    <!-- Ears -->
-                    <circle cx="25" cy="30" r="9" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3"/>
-                    <circle cx="75" cy="30" r="9" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3"/>
-                    <!-- Head/Body -->
-                    <rect x="15" y="25" width="70" height="55" rx="25" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3"/>
-                    <!-- Eyes -->
-                    <circle cx="35" cy="45" r="4" fill="${darkColor}"/>
-                    <circle cx="65" cy="45" r="4" fill="${darkColor}"/>
-                    <!-- Snout -->
-                    <rect x="42" y="55" width="16" height="10" rx="4" fill="${darkColor}"/>
-                    <path d="M50,55 V65" stroke="#5D4037" stroke-width="1"/>
+                    <!-- Ears (Now cuter and floppier) -->
+                    <path d="M18,35 Q12,23 28,25" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" />
+                    <path d="M82,35 Q88,23 72,25" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3" stroke-linecap="round" />
+
+                    <!-- Head/Body Main Shape (Rounded rectangle) -->
+                    <rect x="15" y="25" width="70" height="55" rx="18" fill="${bodyColor}" stroke="${strokeColor}" stroke-width="3"/>
+                    
+                    <!-- Snout Highlight (Adds depth) -->
+                    <rect x="38" y="55" width="24" height="15" rx="6" fill="${highlight}" opacity="0.4"/>
+
+                    <!-- Eyes with shine -->
+                    <circle cx="35" cy="45" r="4.5" fill="${darkColor}"/>
+                    <circle cx="65" cy="45" r="4.5" fill="${darkColor}"/>
+                    <circle cx="37" cy="43" r="1.5" fill="white" opacity="0.8"/>
+                    <circle cx="67" cy="43" r="1.5" fill="white" opacity="0.8"/>
+
+                    <!-- Nose/Nostrils -->
+                    <path d="M45,60 L49,60 M51,60 L55,60" stroke="${darkColor}" stroke-width="2.5" stroke-linecap="round"/>
+                    
+                    <!-- Mouth -->
+                    <path d="M50,64 L50,68 M45,68 Q50,73 55,68" stroke="${darkColor}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                 </g>
             `;
             
@@ -267,7 +288,8 @@
             
             switch (type) {
                 case 'muddy':
-                    extras = `<path d="M15,60 Q25,45 35,60 Q45,35 55,55 Q65,45 75,65 V70 A25,25 0 0,1 15,70 V60 Z" fill="#5D4037" opacity="0.7"/>`;
+                    // Updated mud splatter
+                    extras = `<path d="M15,65 Q25,50 35,65 Q45,45 55,60 Q65,50 75,70 V80 A18,18 0 0,1 15,80 V65 Z" fill="#5D4037" opacity="0.8"/>`;
                     break;
                 case 'flower':
                     extras = `
@@ -312,10 +334,10 @@
                     break;
                 case 'ninja':
                     extras = `
-                        <rect x="15" y="35" width="70" height="15" fill="#212121"/>
-                        <circle cx="35" cy="42" r="2" fill="#FFFFFF"/>
-                        <circle cx="65" cy="42" r="2" fill="#FFFFFF"/>
-                        <path d="M85,35 L95,25 L95,45 Z" fill="#212121"/> 
+                        <rect x="15" y="32" width="70" height="15" fill="#212121"/>
+                        <circle cx="35" cy="39" r="2" fill="#FFFFFF"/>
+                        <circle cx="65" cy="39" r="2" fill="#FFFFFF"/>
+                        <path d="M85,32 L95,22 L95,42 Z" fill="#212121"/> 
                     `;
                     break;
                 case 'wizard':
@@ -351,9 +373,10 @@
                 case 'ghost':
                     return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">
                         <path d="M20,80 Q20,20 50,20 Q80,20 80,80 L70,75 L60,80 L50,75 L40,80 L30,75 L20,80 Z" fill="#E0F7FA" stroke="#B2EBF2" stroke-width="2" opacity="0.8"/>
-                        <circle cx="35" cy="45" r="4" fill="#006064"/>
-                        <circle cx="65" cy="45" r="4" fill="#006064"/>
-                        <ellipse cx="50" cy="65" rx="6" ry="8" fill="#006064"/>
+                        <circle cx="35" cy="45" r="4.5" fill="#006064"/>
+                        <circle cx="65" cy="45" r="4.5" fill="#006064"/>
+                        <path d="M45,60 L55,60" stroke="#006064" stroke-width="2"/>
+                        <circle cx="37" cy="43" r="1.5" fill="white" opacity="0.5"/>
                     </svg>`;
                 case 'rainbow':
                     return `<svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-md overflow-visible">
@@ -367,9 +390,7 @@
                                 <stop offset="100%" style="stop-color:violet;stop-opacity:1" />
                             </linearGradient>
                         </defs>
-                        ${base.replace(`fill="${bodyColor}"`, `fill="url(#rainbowGrad)"`)}
-                        <circle cx="35" cy="45" r="4" fill="white"/>
-                        <circle cx="65" cy="45" r="4" fill="white"/>
+                        ${base.replace(`fill="${bodyColor}"`, `fill="url(#rainbowGrad)"`).replace(`fill="${highlight}"`, `fill="white"`)}
                     </svg>`;
                 case 'birthday':
                      extras = `
@@ -558,48 +579,95 @@
             container.innerHTML = '';
 
             Object.values(baits).forEach(bait => {
-                const isOwned = bait.id === 'grass'; 
                 const isCurrent = gameState.currentBaitId === bait.id;
                 const canAfford = gameState.money >= bait.cost;
-                
-                if (!gameState.unlockedBaits) gameState.unlockedBaits = ['grass'];
-                const isUnlocked = gameState.unlockedBaits.includes(bait.id);
+                const stock = gameState.baitStock[bait.id];
+                const isGrass = bait.id === 'grass';
 
                 const btn = document.createElement('div');
                 btn.className = `
                     flex-shrink-0 w-32 p-2 rounded-xl border-2 cursor-pointer transition-all
                     ${isCurrent ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-200' : 'border-slate-200 bg-white hover:border-teal-300'}
-                    ${!isUnlocked && !canAfford ? 'opacity-60 grayscale' : ''}
+                    ${!isGrass && stock === 0 && !canAfford ? 'opacity-60 grayscale' : ''}
                 `;
                 
                 let actionText = '';
-                if (isCurrent) actionText = 'Equipped';
-                else if (isUnlocked) actionText = 'Equip';
-                else actionText = `$${bait.cost}`;
+                let buttonColorClass = '';
+
+                if (isGrass) {
+                    actionText = isCurrent ? 'Equipped' : 'Equip';
+                    buttonColorClass = isCurrent ? 'text-teal-600' : 'text-blue-500';
+                } else {
+                    if (isCurrent) {
+                         // Active: Click to Buy More
+                         actionText = `Buy 1 $${bait.cost}`;
+                         buttonColorClass = canAfford ? 'text-green-600' : 'text-red-400';
+                    } else {
+                        if (stock > 0) {
+                            actionText = `Equip x${stock}`;
+                            buttonColorClass = 'text-blue-500';
+                        } else {
+                            actionText = `Buy 1 $${bait.cost}`;
+                            buttonColorClass = canAfford ? 'text-green-600' : 'text-red-400';
+                        }
+                    }
+                }
 
                 btn.innerHTML = `
-                    <div class="text-2xl text-center mb-1">${bait.icon}</div>
+                    <div class="relative">
+                        <div class="text-2xl text-center mb-1">${bait.icon}</div>
+                        ${!isGrass ? `<div class="absolute -top-1 -right-1 bg-slate-700 text-white text-[10px] px-1.5 rounded-full">${stock}</div>` : ''}
+                    </div>
                     <div class="font-bold text-sm text-center text-slate-700">${bait.name}</div>
                     <div class="text-xs text-center text-slate-500 mb-1">${bait.desc}</div>
-                    <div class="text-xs font-bold text-center ${isCurrent ? 'text-teal-600' : (isUnlocked ? 'text-blue-500' : (canAfford ? 'text-green-600' : 'text-red-400'))}">
+                    <div class="text-xs font-bold text-center ${buttonColorClass}">
                         ${actionText}
                     </div>
                 `;
 
                 btn.onclick = (e) => {
                     e.stopPropagation();
-                    if (isCurrent) return;
                     
-                    if (isUnlocked) {
-                        gameState.currentBaitId = bait.id;
-                        renderBaits();
-                    } else if (canAfford) {
-                        gameState.money -= bait.cost;
-                        gameState.unlockedBaits.push(bait.id);
-                        gameState.currentBaitId = bait.id;
-                        updateMoneyDisplay();
-                        renderBaits();
-                        playSound('sell'); 
+                    if (isGrass) {
+                        if (!isCurrent) {
+                            gameState.currentBaitId = 'grass';
+                            renderBaits();
+                        }
+                        return;
+                    }
+
+                    // Logic for premium baits
+                    if (isCurrent) {
+                        // Already equipped? Buy more.
+                        if (canAfford) {
+                            gameState.money -= bait.cost;
+                            gameState.baitStock[bait.id]++;
+                            playSound('sell'); // reuse coin sound
+                            updateMoneyDisplay();
+                        }
+                    } else {
+                        // Not equipped
+                        if (stock > 0) {
+                            // Have stock? Equip it.
+                            gameState.currentBaitId = bait.id;
+                            renderBaits();
+                        } else {
+                            // No stock? Buy one.
+                            if (canAfford) {
+                                gameState.money -= bait.cost;
+                                gameState.baitStock[bait.id]++;
+                                playSound('sell'); // reuse coin sound
+                                updateMoneyDisplay();
+                                // Optional: Auto equip on first buy?
+                                // Let's keep it manual to avoid confusion, or auto equip if it was the intent.
+                                // Actually, standard pattern: click to buy, click again to equip?
+                                // Let's auto-equip if we just bought the first one
+                                if (gameState.baitStock[bait.id] === 1) {
+                                     gameState.currentBaitId = bait.id;
+                                     renderBaits();
+                                }
+                            }
+                        }
                     }
                 };
                 container.appendChild(btn);
@@ -648,6 +716,17 @@
         function runAutoFishCycle() {
             if (!gameState.isAutoFishing) return;
 
+            // Consume Bait logic for Auto Fish
+            if (!consumeBait()) {
+                // If consumeBait returns false, it means we ran out and switched to grass (or were already on grass)
+                // We continue fishing with grass.
+                // But if we want to stop auto fishing when premium bait runs out, we could add check here.
+                // For now, let it continue with whatever `consumeBait` set up (likely Grass).
+                renderBaits(); // Update UI count
+            } else {
+                renderBaits(); // Update UI count
+            }
+
             // Start Fishing Sequence
             gameState.isFishing = true;
             gameState.isCasting = true; // Lock manual interactions
@@ -691,7 +770,30 @@
 
         // --- Fishing Logic ---
 
+        function consumeBait() {
+            const currentId = gameState.currentBaitId;
+            if (currentId === 'grass') return true;
+
+            if (gameState.baitStock[currentId] > 0) {
+                gameState.baitStock[currentId]--;
+                return true;
+            } else {
+                // Out of stock! Switch to grass
+                gameState.currentBaitId = 'grass';
+                return false;
+            }
+        }
+
         function handlePondClick() {
+            if (gameState.isOnCooldown) {
+                // Cooldown feedback
+                const msg = document.getElementById('game-message');
+                msg.textContent = "Wait...";
+                msg.classList.add('text-slate-400');
+                setTimeout(() => msg.classList.remove('text-slate-400'), 200);
+                return;
+            }
+            
             if (gameState.isAutoFishing) {
                 const msg = document.getElementById('game-message');
                 msg.textContent = "Auto-Fisher is Active!";
@@ -704,6 +806,19 @@
             const msg = document.getElementById('game-message');
 
             if (!gameState.isFishing) {
+                // ATTEMPT TO CAST
+                
+                // Consume Bait logic
+                const hasBait = consumeBait();
+                renderBaits(); // Update UI
+                
+                if (!hasBait && gameState.currentBaitId === 'grass') {
+                    // This happens if we tried to use premium, ran out, and swapped.
+                    // We still let the cast happen, but it uses Grass stats now.
+                    // Maybe show a quick message?
+                    // "Out of bait! Using Grass."
+                }
+
                 gameState.isFishing = true;
                 gameState.isCasting = true;
                 msg.textContent = "Waiting...";
@@ -848,11 +963,23 @@
             msg.textContent = reason;
             msg.classList.remove('text-red-500', 'scale-110');
             playSound('fail');
+            
+            // ACTIVATE COOLDOWN
+            gameState.isOnCooldown = true;
+
             setTimeout(() => {
                 if (gameState.isAutoFishing) {
-                     runAutoFishCycle(); // Should basically never happen in auto, but safe fallback
+                     // Auto fish handles its own loop, but we can respect cooldown logic if desired.
+                     // For now, auto fish just retries.
+                     gameState.isOnCooldown = false;
+                     runAutoFishCycle(); 
                 } else {
                      resetFishingState();
+                     // Keep cooldown active for another 2 seconds AFTER reset
+                     // to prevent immediate re-cast
+                     setTimeout(() => {
+                        gameState.isOnCooldown = false;
+                     }, 2000);
                 }
             }, 1000);
         }
@@ -864,8 +991,22 @@
             clearTimeout(gameState.reactionTimeout);
             
             const msg = document.getElementById('game-message');
-            msg.textContent = "Tap to Cast!";
-            msg.classList.remove('animate-pulse', 'text-red-500', 'scale-110');
+            // If we are in the "Post-Fail Cooldown", show a different message
+            if (gameState.isOnCooldown && !gameState.isAutoFishing) {
+                 msg.textContent = "Wait...";
+                 msg.classList.add('text-slate-400');
+                 
+                 // Update message when cooldown expires
+                 setTimeout(() => {
+                     if (!gameState.isFishing) {
+                        msg.textContent = "Tap to Cast!";
+                        msg.classList.remove('text-slate-400', 'animate-pulse', 'text-red-500', 'scale-110');
+                     }
+                 }, 2000); // Matches the delay in cancelFishing
+            } else {
+                msg.textContent = "Tap to Cast!";
+                msg.classList.remove('animate-pulse', 'text-red-500', 'scale-110');
+            }
         }
 
         // --- Shop, Inventory, Index & Upgrades Logic ---
