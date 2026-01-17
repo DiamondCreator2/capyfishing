@@ -61,7 +61,12 @@
                 <span class="text-[10px] font-bold text-yellow-300 animate-pulse">+$10/s</span>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+                 <!-- Auto Fish Toggle (Hidden until bought) -->
+                 <button onclick="toggleAutoFish()" id="autofish-btn" class="hidden text-xl bg-slate-700 w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-600 transition-colors shadow-inner border-2 border-transparent" title="Toggle Auto-Fish">
+                    🤖
+                </button>
+
                  <button onclick="toggleMusic()" id="music-btn" class="text-xl bg-teal-700 w-10 h-10 flex items-center justify-center rounded-full hover:bg-teal-500 transition-colors shadow-inner" title="Toggle Music">
                     🔇
                 </button>
@@ -125,12 +130,20 @@
             </div>
 
             <!-- Action Buttons -->
-            <div class="grid grid-cols-2 gap-3">
-                <button onclick="openInventory()" class="bg-orange-100 hover:bg-orange-200 text-orange-800 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2">
-                    🎒 Bag (<span id="bag-count">0</span>)
+            <div class="grid grid-cols-3 gap-2">
+                <button onclick="openInventory()" class="bg-orange-100 hover:bg-orange-200 text-orange-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
+                    <span class="text-xl mb-1">🎒</span>
+                    Bag (<span id="bag-count">0</span>)
                 </button>
-                <button onclick="openIndex()" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2">
-                    📖 Index <span id="index-progress" class="text-xs bg-blue-200 px-2 py-0.5 rounded-full">0/14</span>
+                <button onclick="openIndex()" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
+                    <span class="text-xl mb-1">📖</span>
+                    <div class="flex items-center gap-1">
+                        Index <span id="index-progress" class="text-[10px] bg-blue-300/30 px-1.5 rounded-full">0/14</span>
+                    </div>
+                </button>
+                 <button onclick="openUpgrades()" class="bg-purple-100 hover:bg-purple-200 text-purple-800 py-3 rounded-xl font-bold transition-colors flex flex-col items-center justify-center text-xs sm:text-sm">
+                    <span class="text-xl mb-1">⚡</span>
+                    Upgrades
                 </button>
             </div>
         </div>
@@ -145,7 +158,6 @@
                 
                 <div id="inventory-list" class="flex-grow overflow-y-auto space-y-2 pr-2">
                     <!-- Items go here -->
-                    <div class="text-center text-slate-400 mt-10 italic">Your bag is empty. Go fish!</div>
                 </div>
 
                 <div class="mt-4 pt-4 border-t border-slate-100">
@@ -173,6 +185,20 @@
             </div>
         </div>
 
+        <!-- Upgrades Modal (Overlay) -->
+        <div id="upgrades-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center justify-center p-4">
+            <div class="bg-white w-full max-w-md h-auto max-h-[90%] rounded-3xl p-6 flex flex-col shadow-2xl animate-[slideUp_0.3s_ease-out]">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Upgrades</h2>
+                    <button onclick="closeUpgrades()" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+                </div>
+                
+                <div id="upgrades-list" class="flex-grow overflow-y-auto space-y-3 pr-2">
+                    <!-- Upgrades go here -->
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -180,7 +206,7 @@
         const gameState = {
             money: 0,
             inventory: [],
-            discovered: new Set(), // IDs of discovered capys
+            discovered: new Set(),
             birthdayUnlocked: false,
             currentBaitId: 'grass',
             isFishing: false,
@@ -191,7 +217,19 @@
             reactionTimeout: null,
             musicPlaying: false,
             musicInterval: null,
-            passiveIncomeInterval: null
+            passiveIncomeInterval: null,
+            // New Upgrade States
+            sellMultiplierLevel: 0,
+            lureLevel: 0,
+            hasAutoFish: false,
+            isAutoFishing: false,
+            autoFishTimeout: null
+        };
+
+        const upgradeData = {
+            sell: { name: "Market Connections", max: 5, costs: [100, 250, 500, 1000, 2000], desc: "+20% Sell Value" },
+            lure: { name: "Shiny Lure", max: 5, costs: [50, 150, 300, 600, 1200], desc: "Fish bite 15% faster" },
+            auto: { name: "Auto-Fisher 3000", max: 1, costs: [250], desc: "Unlocks Auto-Fish (1.5x duration)" }
         };
 
         const baits = {
@@ -480,7 +518,6 @@
                 if (gameState.birthdayUnlocked) {
                     gameState.money += 10;
                     updateMoneyDisplay();
-                    // Optional small bounce or effect on money
                     const display = document.getElementById('money-display');
                     display.classList.add('text-green-500');
                     setTimeout(() => display.classList.remove('text-green-500'), 200);
@@ -489,9 +526,10 @@
         }
 
         function updateMoneyDisplay() {
-            document.getElementById('money-display').textContent = gameState.money;
+            document.getElementById('money-display').textContent = Math.floor(gameState.money);
             renderBaits(); // Re-render baits to update affordable status
             updateSellButton();
+            renderUpgrades(); // Update upgrade buttons
         }
 
         function updateBagCount() {
@@ -575,9 +613,91 @@
             document.getElementById('bait-bonus').textContent = `Luck: ${luckText}`;
         }
 
+        // --- Auto Fish Logic ---
+
+        function toggleAutoFish() {
+            if (!gameState.hasAutoFish) return;
+            
+            const btn = document.getElementById('autofish-btn');
+            
+            if (gameState.isAutoFishing) {
+                // STOP Auto Fish
+                gameState.isAutoFishing = false;
+                clearTimeout(gameState.autoFishTimeout);
+                btn.classList.remove('bg-green-500', 'border-green-300', 'animate-pulse');
+                btn.classList.add('bg-slate-700');
+                
+                // If we were waiting for a catch, stop it safely
+                resetFishingState();
+            } else {
+                // START Auto Fish
+                gameState.isAutoFishing = true;
+                btn.classList.remove('bg-slate-700');
+                btn.classList.add('bg-green-500', 'border-green-300', 'animate-pulse');
+                
+                // If manual fishing is happening, cancel it first
+                if (gameState.isFishing) {
+                    resetFishingState();
+                    setTimeout(runAutoFishCycle, 500);
+                } else {
+                    runAutoFishCycle();
+                }
+            }
+        }
+
+        function runAutoFishCycle() {
+            if (!gameState.isAutoFishing) return;
+
+            // Start Fishing Sequence
+            gameState.isFishing = true;
+            gameState.isCasting = true; // Lock manual interactions
+            
+            const msg = document.getElementById('game-message');
+            const fisherman = document.getElementById('fisherman');
+            
+            msg.textContent = "Auto-Fishing...";
+            msg.classList.add('animate-pulse');
+            
+            fisherman.classList.add('-rotate-12');
+            playSound('cast');
+
+            setTimeout(() => {
+                fisherman.classList.remove('-rotate-12');
+                gameState.isCasting = false;
+
+                // Calculate Wait Time (Normal * 1.5)
+                // Lure Reduction: Each level reduces base time by 15%
+                const lureReduction = 1 - (gameState.lureLevel * 0.15);
+                const baseWait = (2000 + Math.random() * 3000) * lureReduction;
+                const autoWait = baseWait * 1.5;
+
+                gameState.autoFishTimeout = setTimeout(() => {
+                    if (gameState.isAutoFishing) {
+                        autoCatch();
+                    }
+                }, autoWait);
+
+            }, 300);
+        }
+
+        function autoCatch() {
+            playSound('bite');
+            // Small delay to simulate "catching"
+            setTimeout(() => {
+                if (!gameState.isAutoFishing) return;
+                determineCatch(true); // true = isAuto
+            }, 500);
+        }
+
         // --- Fishing Logic ---
 
         function handlePondClick() {
+            if (gameState.isAutoFishing) {
+                const msg = document.getElementById('game-message');
+                msg.textContent = "Auto-Fisher is Active!";
+                setTimeout(() => { if(gameState.isAutoFishing) msg.textContent = "Auto-Fishing..."; }, 1000);
+                return;
+            }
             if (gameState.isCasting || gameState.showingCatch) return;
 
             const fisherman = document.getElementById('fisherman');
@@ -596,7 +716,10 @@
                     fisherman.classList.remove('-rotate-12');
                     gameState.isCasting = false;
                     
-                    const waitTime = 2000 + Math.random() * 3000;
+                    // Lure Logic
+                    const lureReduction = 1 - (gameState.lureLevel * 0.15);
+                    const waitTime = (2000 + Math.random() * 3000) * lureReduction;
+                    
                     gameState.biteTimeout = setTimeout(() => {
                         triggerBite();
                     }, waitTime);
@@ -632,13 +755,13 @@
             clearTimeout(gameState.reactionTimeout);
             if (gameState.isWaitingForBite) {
                 gameState.isWaitingForBite = false; 
-                determineCatch();
+                determineCatch(false);
             } else {
                 cancelFishing("???");
             }
         }
 
-        function determineCatch() {
+        function determineCatch(isAuto) {
             const bait = baits[gameState.currentBaitId];
             const luck = bait.luck;
             
@@ -667,10 +790,10 @@
                 random -= item.weight;
             }
 
-            showCatch(caught);
+            showCatch(caught, isAuto);
         }
 
-        function showCatch(capy) {
+        function showCatch(capy, isAuto) {
             gameState.inventory.push(capy);
             gameState.showingCatch = true;
             updateBagCount();
@@ -698,13 +821,26 @@
             else newLabel.classList.add('hidden');
             
             feedback.classList.remove('hidden');
-            document.getElementById('game-message').textContent = "Gotcha!";
+            
+            if (!isAuto) {
+                document.getElementById('game-message').textContent = "Gotcha!";
+            } else {
+                document.getElementById('game-message').textContent = `Caught ${capy.name}!`;
+            }
+
+            // For auto-fishing, shorter celebration
+            const celebrationTime = isAuto ? 1000 : 2000;
 
             setTimeout(() => {
                 feedback.classList.add('hidden');
                 gameState.showingCatch = false;
-                resetFishingState();
-            }, 2000);
+                
+                if (gameState.isAutoFishing) {
+                    runAutoFishCycle(); // Loop
+                } else {
+                    resetFishingState();
+                }
+            }, celebrationTime);
         }
 
         function cancelFishing(reason) {
@@ -713,7 +849,11 @@
             msg.classList.remove('text-red-500', 'scale-110');
             playSound('fail');
             setTimeout(() => {
-                resetFishingState();
+                if (gameState.isAutoFishing) {
+                     runAutoFishCycle(); // Should basically never happen in auto, but safe fallback
+                } else {
+                     resetFishingState();
+                }
             }, 1000);
         }
 
@@ -728,12 +868,11 @@
             msg.classList.remove('animate-pulse', 'text-red-500', 'scale-110');
         }
 
-        // --- Shop, Inventory & Index Logic ---
+        // --- Shop, Inventory, Index & Upgrades Logic ---
 
         function openInventory() {
-            const modal = document.getElementById('inventory-modal');
+            document.getElementById('inventory-modal').classList.remove('hidden');
             const list = document.getElementById('inventory-list');
-            modal.classList.remove('hidden');
             list.innerHTML = '';
 
             if (gameState.inventory.length === 0) {
@@ -755,16 +894,12 @@
             updateSellButton();
         }
 
-        function closeInventory() {
-            document.getElementById('inventory-modal').classList.add('hidden');
-        }
-
-        function openIndex() {
-            const modal = document.getElementById('index-modal');
+        function closeInventory() { document.getElementById('inventory-modal').classList.add('hidden'); }
+        function openIndex() { 
+            document.getElementById('index-modal').classList.remove('hidden');
+            // Re-render index logic (omitted here for brevity, logic exists in prev version)
             const grid = document.getElementById('index-grid');
-            modal.classList.remove('hidden');
             grid.innerHTML = '';
-
             capyTypes.forEach(capy => {
                 const isDiscovered = gameState.discovered.has(capy.id);
                 const el = document.createElement('div');
@@ -772,28 +907,124 @@
                     ${isDiscovered ? 'bg-white border-teal-200 shadow-sm' : 'bg-slate-100 border-slate-200'}`;
                 
                 if (isDiscovered) {
-                    el.innerHTML = `
-                        <div class="w-12 h-12 mb-1">${capy.icon}</div>
-                        <div class="text-[10px] font-bold text-center leading-tight">${capy.name}</div>
-                    `;
+                    el.innerHTML = `<div class="w-12 h-12 mb-1">${capy.icon}</div><div class="text-[10px] font-bold text-center leading-tight">${capy.name}</div>`;
                 } else {
-                    el.innerHTML = `
-                        <div class="text-3xl text-slate-300 opacity-50">?</div>
-                        <div class="text-[10px] font-bold text-slate-300 text-center mt-1">LOCKED</div>
-                    `;
+                    el.innerHTML = `<div class="text-3xl text-slate-300 opacity-50">?</div><div class="text-[10px] font-bold text-slate-300 text-center mt-1">LOCKED</div>`;
                 }
                 grid.appendChild(el);
             });
         }
+        function closeIndex() { document.getElementById('index-modal').classList.add('hidden'); }
 
-        function closeIndex() {
-            document.getElementById('index-modal').classList.add('hidden');
+        // Upgrades Modal Logic
+        function openUpgrades() {
+            document.getElementById('upgrades-modal').classList.remove('hidden');
+            renderUpgrades();
+        }
+        
+        function closeUpgrades() { document.getElementById('upgrades-modal').classList.add('hidden'); }
+
+        function renderUpgrades() {
+            const list = document.getElementById('upgrades-list');
+            list.innerHTML = '';
+
+            // Render Lure
+            const lureCost = upgradeData.lure.costs[gameState.lureLevel];
+            const lureMaxed = gameState.lureLevel >= upgradeData.lure.max;
+            
+            list.appendChild(createUpgradeItem(
+                upgradeData.lure.name, 
+                `Level ${gameState.lureLevel}/${upgradeData.lure.max}`,
+                upgradeData.lure.desc,
+                lureMaxed ? "Maxed" : `$${lureCost}`,
+                lureMaxed ? false : (gameState.money >= lureCost),
+                () => buyLure(lureCost)
+            ));
+
+            // Render Sell
+            const sellCost = upgradeData.sell.costs[gameState.sellMultiplierLevel];
+            const sellMaxed = gameState.sellMultiplierLevel >= upgradeData.sell.max;
+
+            list.appendChild(createUpgradeItem(
+                upgradeData.sell.name, 
+                `Level ${gameState.sellMultiplierLevel}/${upgradeData.sell.max}`,
+                upgradeData.sell.desc,
+                sellMaxed ? "Maxed" : `$${sellCost}`,
+                sellMaxed ? false : (gameState.money >= sellCost),
+                () => buySellUpgrade(sellCost)
+            ));
+
+            // Render Auto-Fish
+            const autoBought = gameState.hasAutoFish;
+            list.appendChild(createUpgradeItem(
+                upgradeData.auto.name, 
+                autoBought ? "Owned" : "One-Time Purchase",
+                upgradeData.auto.desc,
+                autoBought ? "Owned" : `$${upgradeData.auto.costs[0]}`,
+                autoBought ? false : (gameState.money >= upgradeData.auto.costs[0]),
+                () => buyAutoFish(upgradeData.auto.costs[0])
+            ));
+        }
+
+        function createUpgradeItem(title, sub, desc, btnText, canAfford, onClick) {
+            const el = document.createElement('div');
+            el.className = 'bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col gap-2';
+            el.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="font-bold text-slate-800 text-lg">${title}</div>
+                        <div class="text-xs font-bold text-slate-500 uppercase">${sub}</div>
+                        <div class="text-xs text-slate-600 mt-1">${desc}</div>
+                    </div>
+                </div>
+                <button class="mt-2 w-full py-2 rounded-lg font-bold transition-transform active:scale-95 ${canAfford ? 'bg-purple-500 hover:bg-purple-600 text-white shadow-md' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}">
+                    ${btnText}
+                </button>
+            `;
+            if (canAfford) {
+                el.querySelector('button').onclick = onClick;
+            }
+            return el;
+        }
+
+        function buyLure(cost) {
+            if (gameState.money >= cost) {
+                gameState.money -= cost;
+                gameState.lureLevel++;
+                playSound('sell');
+                updateMoneyDisplay();
+            }
+        }
+
+        function buySellUpgrade(cost) {
+            if (gameState.money >= cost) {
+                gameState.money -= cost;
+                gameState.sellMultiplierLevel++;
+                playSound('sell');
+                updateMoneyDisplay();
+            }
+        }
+
+        function buyAutoFish(cost) {
+            if (gameState.money >= cost) {
+                gameState.money -= cost;
+                gameState.hasAutoFish = true;
+                playSound('sell');
+                updateMoneyDisplay();
+                document.getElementById('autofish-btn').classList.remove('hidden');
+                alert("Auto-Fisher 3000 Unlocked!\nCheck the header for the Robot Button.");
+            }
         }
 
         function sellAll() {
             if (gameState.inventory.length === 0) return;
 
-            const totalValue = gameState.inventory.reduce((sum, item) => sum + item.value, 0);
+            let totalValue = gameState.inventory.reduce((sum, item) => sum + item.value, 0);
+            
+            // Apply Sell Multiplier
+            const multiplier = 1 + (gameState.sellMultiplierLevel * 0.2); // +20% per level
+            totalValue = Math.floor(totalValue * multiplier);
+
             gameState.money += totalValue;
             gameState.inventory = []; 
             
@@ -804,13 +1035,15 @@
             const msg = document.getElementById('game-message');
             msg.textContent = `Sold for $${totalValue}!`;
             setTimeout(() => {
-                if (!gameState.isFishing) msg.textContent = "Tap to Cast!";
+                if (!gameState.isFishing && !gameState.isAutoFishing) msg.textContent = "Tap to Cast!";
             }, 2000);
         }
 
         function updateSellButton(val) {
-             const currentVal = val !== undefined ? val : gameState.inventory.reduce((sum, item) => sum + item.value, 0);
-             document.getElementById('total-sell-value').textContent = `$${currentVal}`;
+             let baseVal = gameState.inventory.reduce((sum, item) => sum + item.value, 0);
+             const multiplier = 1 + (gameState.sellMultiplierLevel * 0.2);
+             const totalVal = Math.floor(baseVal * multiplier);
+             document.getElementById('total-sell-value').textContent = `$${totalVal}`;
         }
 
         // Start
